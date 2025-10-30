@@ -1,6 +1,6 @@
 import Student from '../models/Student.js';
 import { processExcelUpload } from '../services/excelService.js';
-import { generateStudentPDF } from '../services/pdfService.js';
+import xlsx from 'xlsx'; // ✅ IMPORT ADDED
 
 // @desc    Get all students with pagination and filters
 // @route   GET /api/students
@@ -142,31 +142,88 @@ export const updateStatus = async (req, res, next) => {
 // @access  Public
 export const uploadExcel = async (req, res, next) => {
   try {
-    const { excelData } = req.body;
+    // ✅ FIXED: Check for file instead of excelData in body
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No Excel file uploaded. Please select a file.' 
+      });
+    }
+
+    console.log('📁 Uploaded file details:', {
+      filename: req.file.originalname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      bufferLength: req.file.buffer?.length
+    });
+
+    let excelData = [];
     
-    if (!excelData || !Array.isArray(excelData)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid Excel data format. Expected array of rows.' 
+    try {
+      // ✅ FIXED: Read Excel file from buffer using xlsx
+      const workbook = xlsx.read(req.file.buffer, { 
+        type: 'buffer',
+        cellDates: true,
+        cellText: false 
+      });
+      
+      console.log('📊 Workbook sheets:', workbook.SheetNames);
+      
+      // Get first sheet
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      
+      // Convert to JSON array
+      excelData = xlsx.utils.sheet_to_json(worksheet, { 
+        header: 1, // This gives array of arrays
+        defval: '',
+        blankrows: false
+      });
+      
+      console.log('📈 Excel data parsed successfully. Total rows:', excelData.length);
+      
+      // Show first few rows for debugging
+      if (excelData.length > 0) {
+        console.log('🔍 First 3 rows sample:');
+        excelData.slice(0, 3).forEach((row, index) => {
+          console.log(`Row ${index}:`, row);
+        });
+      }
+      
+    } catch (excelError) {
+      console.error('❌ Excel parsing error:', excelError);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid Excel file format. Please upload a valid Excel file.'
       });
     }
 
-    if (excelData.length === 0) {
+    if (!excelData || excelData.length === 0) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Excel data is empty' 
+        message: 'Excel file is empty or contains no data' 
       });
     }
 
+    console.log(`🔄 Processing ${excelData.length} rows from Excel...`);
+    
+    // Process the Excel data
     const result = await processExcelUpload(excelData);
+    
+    console.log('✅ Excel processing completed:', result);
     
     res.json({
       success: true,
-      message: `Successfully processed ${result.created} students`,
+      message: `Excel file processed successfully!`,
       ...result
     });
+
   } catch (error) {
-    next(error);
+    console.error('❌ Excel upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to process Excel file'
+    });
   }
 };
 
@@ -223,17 +280,22 @@ export const generatePDF = async (req, res, next) => {
 // @access  Public
 export const getStats = async (req, res, next) => {
   try {
-    const stats = await Student.getStats();
-    const remaining = stats.total - stats.scanned - stats.absent;
+    // Simple stats calculation
+    const total = await Student.countDocuments();
+    const scanned = await Student.countDocuments({ isScanned: true });
+    const absent = await Student.countDocuments({ status: 'Absent' });
+    const pdfGenerated = await Student.countDocuments({ pdfPath: { $ne: null } });
+    
+    const remaining = total - scanned - absent;
 
     res.json({
       success: true,
       stats: {
-        total: stats.total,
-        scanned: stats.scanned,
-        absent: stats.absent,
+        total: total,
+        scanned: scanned,
+        absent: absent,
         remaining: remaining,
-        pdfGenerated: stats.pdfGenerated
+        pdfGenerated: pdfGenerated
       }
     });
   } catch (error) {
@@ -244,7 +306,7 @@ export const getStats = async (req, res, next) => {
 // @desc    Delete student and associated PDF
 // @route   DELETE /api/students/:id
 // @access  Public
-export const deleteStudent = async (req, res, next) => {  // ✅ ADDED THIS FUNCTION
+export const deleteStudent = async (req, res, next) => {
   try {
     const student = await Student.findById(req.params.id);
     
@@ -282,12 +344,10 @@ export const deleteStudent = async (req, res, next) => {  // ✅ ADDED THIS FUNC
 // @desc    Delete all students (for cleanup)
 // @route   DELETE /api/students
 // @access  Public
-export const deleteAllStudents = async (req, res, next) => {  // ✅ OPTIONAL: Added for cleanup
+export const deleteAllStudents = async (req, res, next) => {
   try {
     // Delete all PDF files first
     const fs = await import('fs');
-    const path = await import('path');
-    const { config } = await import('../config/database.js');
     
     const students = await Student.find({ pdfPath: { $ne: null } });
     
