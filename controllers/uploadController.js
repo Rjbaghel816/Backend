@@ -2,11 +2,75 @@ import Student from '../models/Student.js';
 import { generateAndSavePDF } from '../services/pdfService.js';
 import path from 'path';
 import fs from 'fs/promises';
+import sharp from 'sharp';
 
-// @desc    Upload scans and generate PDF directly
+// ✅ Helper function to check if file exists
+const fileExists = async (filePath) => {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+// ✅ FAST image compression
+const fastCompressImage = async (buffer) => {
+  try {
+    return await sharp(buffer)
+      .rotate()
+      .resize(800, 1000, {
+        fit: 'inside',
+        withoutEnlargement: true,
+        fastShrinkOnLoad: true
+      })
+      .jpeg({
+        quality: 60,
+        progressive: true,
+        force: true
+      })
+      .toBuffer();
+  } catch (error) {
+    console.warn('Fast compression failed, using original');
+    return buffer;
+  }
+};
+
+// ✅ PARALLEL image processing
+const processImagesInParallel = async (files, maxConcurrency = 4) => {
+  console.log(`🔄 Processing ${files.length} images with ${maxConcurrency} parallel workers`);
+  
+  const results = [];
+  const queue = [...files];
+  
+  while (queue.length > 0) {
+    const batch = queue.splice(0, maxConcurrency);
+    const batchPromises = batch.map(file => fastCompressImage(file.buffer));
+    
+    const batchResults = await Promise.allSettled(batchPromises);
+    
+    batchResults.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        results.push(result.value);
+      } else {
+        console.warn('Image compression failed, using original');
+        results.push(batch[index].buffer);
+      }
+    });
+    
+    console.log(`✅ Processed ${results.length}/${files.length} images`);
+  }
+  
+  return results;
+};
+
+// @desc    ULTRA-FAST upload scans
 // @route   POST /api/upload/scan/:studentId
 // @access  Public
 export const uploadScans = async (req, res, next) => {
+  const startTime = Date.now();
+  console.log(`🚀 Starting ULTRA-FAST upload for ${req.files?.length || 0} images`);
+  
   try {
     const { studentId } = req.params;
     const files = req.files;
@@ -18,6 +82,13 @@ export const uploadScans = async (req, res, next) => {
       });
     }
 
+    if (files.length > 50) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Too many images. Maximum 50 allowed.' 
+      });
+    }
+
     const student = await Student.findById(studentId);
     if (!student) {
       return res.status(404).json({ 
@@ -26,7 +97,6 @@ export const uploadScans = async (req, res, next) => {
       });
     }
 
-    // Check if student is absent
     if (student.status === 'Absent') {
       return res.status(400).json({ 
         success: false, 
@@ -34,25 +104,32 @@ export const uploadScans = async (req, res, next) => {
       });
     }
 
+    console.log(`📸 Processing ${files.length} images for ${student.rollNumber}`);
+
     try {
-      // ✅ Generate PDF directly from uploaded images
-      const pdfResult = await generateAndSavePDF(student, files.map(file => file.buffer));
+      // ✅ STEP 1: Parallel image compression
+      const compressionStart = Date.now();
+      const compressedBuffers = await processImagesInParallel(files, 4);
+      console.log(`⚡ Compression completed in ${Date.now() - compressionStart}ms`);
       
-      // Update student record with PDF info
+      // ✅ STEP 2: Fast PDF generation
+      const pdfStart = Date.now();
+      const pdfResult = await generateAndSavePDF(student, compressedBuffers);
+      console.log(`⚡ PDF generation completed in ${Date.now() - pdfStart}ms`);
+      
+      // ✅ STEP 3: Update database
       const scannedPages = files.map((file, index) => ({
         pageNumber: index + 1,
         timestamp: new Date()
       }));
 
-      // ✅ Delete old PDF if exists before updating
-      if (student.pdfPath) {
+      // Cleanup old PDF
+      if (student.pdfPath && await fileExists(student.pdfPath)) {
         try {
-          if (fs.existsSync(student.pdfPath)) {
-            await fs.unlink(student.pdfPath);
-            console.log(`✅ Deleted old PDF: ${student.pdfPath}`);
-          }
+          await fs.unlink(student.pdfPath);
+          console.log(`✅ Deleted old PDF`);
         } catch (fsError) {
-          console.warn('Could not delete old PDF file:', fsError);
+          console.warn('Could not delete old PDF:', fsError.message);
         }
       }
 
@@ -65,9 +142,13 @@ export const uploadScans = async (req, res, next) => {
 
       await student.save();
 
+      const totalTime = Date.now() - startTime;
+      console.log(`🎉 TOTAL PROCESSING TIME: ${totalTime}ms for ${files.length} images`);
+
       res.json({
         success: true,
-        message: `Successfully scanned ${files.length} pages and generated PDF`,
+        message: `Successfully scanned ${files.length} pages in ${totalTime}ms`,
+        processingTime: totalTime,
         student: {
           ...student.toObject(),
           pagesCount: student.scannedPages.length
@@ -81,29 +162,24 @@ export const uploadScans = async (req, res, next) => {
       });
 
     } catch (pdfError) {
-      console.error('PDF generation failed:', pdfError);
+      console.error('❌ PDF generation failed:', pdfError);
       
-      // ✅ Clean up on PDF generation failure
-      if (student.pdfPath) {
+      if (student.pdfPath && await fileExists(student.pdfPath)) {
         try {
-          if (fs.existsSync(student.pdfPath)) {
-            await fs.unlink(student.pdfPath);
-          }
+          await fs.unlink(student.pdfPath);
         } catch (cleanupError) {
-          console.warn('Could not cleanup failed PDF:', cleanupError);
+          console.warn('Cleanup failed:', cleanupError.message);
         }
-        student.pdfPath = null;
-        student.pdfGeneratedAt = null;
-        await student.save();
       }
       
       return res.status(500).json({ 
         success: false, 
-        message: 'Failed to generate PDF from scanned images' 
+        message: 'Failed to process scanned images.' 
       });
     }
 
   } catch (error) {
+    console.error('❌ Upload scans error:', error);
     next(error);
   }
 };
@@ -123,7 +199,6 @@ export const deleteScans = async (req, res, next) => {
       });
     }
 
-    // Delete PDF file if exists
     if (student.pdfPath) {
       try {
         if (await fileExists(student.pdfPath)) {
@@ -135,7 +210,6 @@ export const deleteScans = async (req, res, next) => {
       }
     }
 
-    // Clear student scan data
     student.scannedPages = [];
     student.isScanned = false;
     student.scanTime = null;
@@ -180,26 +254,22 @@ export const downloadPDF = async (req, res, next) => {
       });
     }
 
-    // ✅ Check if file exists with better error handling
     if (!(await fileExists(student.pdfPath))) {
-      // If PDF file doesn't exist, clear the reference
       student.pdfPath = null;
       student.pdfGeneratedAt = null;
       await student.save();
       
       return res.status(404).json({ 
         success: false, 
-        message: 'PDF file not found. Please rescan the copies.' 
+        message: 'PDF file not found. Please rescan.' 
       });
     }
 
     const filename = `Copy_${student.rollNumber}_${student.subjectCode}.pdf`;
     
-    // ✅ Set proper headers for download
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     
-    // Stream the file for better performance
     const fileStream = fs.createReadStream(student.pdfPath);
     fileStream.pipe(res);
     
@@ -240,7 +310,6 @@ export const getPDFInfo = async (req, res, next) => {
       });
     }
 
-    // Check if PDF file exists
     let fileStats = null;
     try {
       if (await fileExists(student.pdfPath)) {
@@ -283,7 +352,6 @@ export const rescanStudent = async (req, res, next) => {
       });
     }
 
-    // Delete existing PDF file
     if (student.pdfPath) {
       try {
         if (await fileExists(student.pdfPath)) {
@@ -295,13 +363,11 @@ export const rescanStudent = async (req, res, next) => {
       }
     }
 
-    // Reset scan data but keep student info
     student.scannedPages = [];
     student.isScanned = false;
     student.scanTime = null;
     student.pdfPath = null;
     student.pdfGeneratedAt = null;
-    // Keep status as is (don't reset to Pending)
 
     await student.save();
 
@@ -343,7 +409,6 @@ export const batchDeleteScans = async (req, res, next) => {
       try {
         const student = await Student.findById(studentId);
         if (student) {
-          // Delete PDF file if exists
           if (student.pdfPath) {
             try {
               if (await fileExists(student.pdfPath)) {
@@ -354,7 +419,6 @@ export const batchDeleteScans = async (req, res, next) => {
             }
           }
 
-          // Reset scan data
           student.scannedPages = [];
           student.isScanned = false;
           student.scanTime = null;
@@ -378,25 +442,5 @@ export const batchDeleteScans = async (req, res, next) => {
 
   } catch (error) {
     next(error);
-  }
-};
-
-// ✅ Helper function to check if file exists
-const fileExists = async (filePath) => {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-// ✅ Helper function to get file size
-const getFileSize = async (filePath) => {
-  try {
-    const stats = await fs.stat(filePath);
-    return stats.size;
-  } catch {
-    return 0;
   }
 };

@@ -1,42 +1,46 @@
 import multer from 'multer';
-import path from 'path';
-import { config } from '../config/database.js';
 
-// Configure multer for memory storage (process images before saving)
 const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
-  if (config.allowedMimeTypes.includes(file.mimetype)) {
+  if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Only ${config.allowedMimeTypes.join(', ')} are allowed.`), false);
+    cb(new Error('Only image files are allowed!'), false);
   }
 };
 
 export const upload = multer({
   storage: storage,
+  fileFilter: fileFilter,
   limits: {
-    fileSize: config.maxFileSize,
-    files: config.maxImagesPerUpload
-  },
-  fileFilter: fileFilter
+    fileSize: 5 * 1024 * 1024,
+    files: 50
+  }
 });
 
-// Error handler for multer
-export const handleMulterError = (err, req, res, next) => {
-  if (err instanceof multer.MulterError) {
-    if (err.code === 'LIMIT_FILE_SIZE') {
+export const handleMulterError = (error, req, res, next) => {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({
         success: false,
-        message: 'File too large. Maximum size is 50MB.'
+        message: 'File too large. Maximum size is 5MB.'
       });
     }
-    if (err.code === 'LIMIT_FILE_COUNT') {
+    if (error.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({
         success: false,
-        message: 'Too many files. Maximum 10 files per upload.'
+        message: 'Too many files. Maximum 50 images allowed.'
       });
     }
   }
-  next(err);
+  
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+  
+  next();
 };

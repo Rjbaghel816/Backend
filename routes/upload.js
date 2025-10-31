@@ -13,7 +13,7 @@ const router = express.Router();
 
 // Upload scans and generate PDF directly
 router.post('/scan/:studentId', 
-  upload.array('images', 10), 
+  upload.array('images', 50),
   handleMulterError,
   uploadScans
 );
@@ -24,13 +24,13 @@ router.delete('/scan/:studentId', deleteScans);
 // Download PDF
 router.get('/pdf/:studentId', downloadPDF);
 
-// ✅ NEW: Get PDF info without downloading
+// Get PDF info without downloading
 router.get('/pdf/:studentId/info', getPDFInfo);
 
-// ✅ NEW: Rescan student (delete old and allow new scan)
+// Rescan student (delete old and allow new scan)
 router.post('/rescan/:studentId', rescanStudent);
 
-// ✅ NEW: Batch delete multiple students' scans
+// Batch delete multiple students' scans
 router.post('/batch-delete', batchDeleteScans);
 
 export default router;

@@ -9,7 +9,7 @@ dotenv.config(); // ✅ Load environment variables first
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure storage directories exist
+// ✅ Utility to ensure directory exists
 const ensureDirectoryExists = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
@@ -17,19 +17,25 @@ const ensureDirectoryExists = (dirPath) => {
   }
 };
 
+// ✅ Base storage path (fallback included)
 const storagePath = process.env.STORAGE_PATH || 'C:/exam_scanner_uploads';
-const pdfsPath = path.join(storagePath, 'pdfs');
 
-// Create necessary folders
+// ✅ Define PDF-related directories
+const pdfsPath = path.join(storagePath, 'pdfs');
+const compressedPdfsPath = path.join(storagePath, 'compressed_pdfs');
+
+// ✅ Ensure directories exist
 ensureDirectoryExists(storagePath);
 ensureDirectoryExists(pdfsPath);
+ensureDirectoryExists(compressedPdfsPath);
 
-// ✅ Export config object
+// ✅ Export all configurations
 export const config = {
-  mongoURI: process.env.MONGO_URI, // 🔥 fixed variable name
+  mongoURI: process.env.MONGODB_URI || process.env.MONGO_URI, // 🔥 Added fallback
   storagePath,
   pdfsPath,
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB
+  compressedPdfsPath, // 🔥 New: for storing compressed PDFs
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB default
   allowedMimeTypes: (process.env.ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp').split(','),
   imageQuality: 85,
   maxImagesPerUpload: 10,
