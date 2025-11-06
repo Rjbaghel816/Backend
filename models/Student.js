@@ -29,10 +29,11 @@ const studentSchema = new mongoose.Schema({
     trim: true 
   },
   status: { 
-    type: String, 
-    enum: ['Pending', 'Present', 'Absent'], 
-    default: 'Pending' 
-  },
+  type: String, 
+  enum: ['Pending', 'Present', 'Absent', 'Missing'],  // ✅ Added "Missing"
+  default: 'Pending' 
+},
+
   remark: { 
     type: String, 
     default: '' 

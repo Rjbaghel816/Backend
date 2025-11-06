@@ -91,22 +91,28 @@ export const getStudent = async (req, res, next) => {
 // @desc    Update student status
 // @route   PATCH /api/students/:id/status
 // @access  Public
+// @desc    Update student status
+// @route   PATCH /api/students/:id/status
+// @access  Public
 export const updateStatus = async (req, res, next) => {
   try {
     const { status, remark } = req.body;
-    
-    if (!status || !['Pending', 'Present', 'Absent'].includes(status)) {
+
+    // ✅ Added "Missing" in allowed statuses
+    const validStatuses = ['Pending', 'Present', 'Absent', 'Missing'];
+
+    if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({ 
         success: false, 
-        message: 'Valid status is required: Pending, Present, or Absent' 
+        message: `Valid status is required: ${validStatuses.join(', ')}` 
       });
     }
 
     const updateData = { status };
     if (remark !== undefined) updateData.remark = remark;
     
-    // If status is Absent, clear scanned pages and PDF
-    if (status === 'Absent') {
+    // ✅ If status is Absent or Missing, clear scanned data
+    if (status === 'Absent' || status === 'Missing') {
       updateData.scannedPages = [];
       updateData.isScanned = false;
       updateData.scanTime = null;
@@ -136,6 +142,7 @@ export const updateStatus = async (req, res, next) => {
     next(error);
   }
 };
+
 
 // @desc    Upload Excel and create students
 // @route   POST /api/students/upload-excel
