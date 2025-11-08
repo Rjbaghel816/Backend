@@ -135,10 +135,12 @@ const addImageToPDF = async (pdfDoc, imageBuffer) => {
       image = await pdfDoc.embedPng(pngBuffer);
     }
 
-    const page = pdfDoc.addPage([595, 842]);
+   const page = pdfDoc.addPage([842, 595]); // A4 landscape
+
     
     const { width, height } = image.scale(1);
-    const scale = Math.min(500 / width, 700 / height);
+    const scale = Math.min(700 / width, 500 / height);
+
     
     page.drawImage(image, {
       x: 50,
