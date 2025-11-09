@@ -17,8 +17,8 @@ const ensureDirectoryExists = (dirPath) => {
   }
 };
 
-// ✅ Base storage path (fallback included)
-const storagePath = process.env.STORAGE_PATH || 'C:/exam_scanner_uploads';
+// ✅ FIXED: Direct path set karein (config se nahi)
+const storagePath = 'C:/exam_scanner_uploads';
 
 // ✅ Define PDF-related directories
 const pdfsPath = path.join(storagePath, 'pdfs');
@@ -31,11 +31,11 @@ ensureDirectoryExists(compressedPdfsPath);
 
 // ✅ Export all configurations
 export const config = {
-  mongoURI: process.env.MONGODB_URI || process.env.MONGO_URI, // 🔥 Added fallback
+  mongoURI: process.env.MONGODB_URI || process.env.MONGO_URI,
   storagePath,
-  pdfsPath,
-  compressedPdfsPath, // 🔥 New: for storing compressed PDFs
-  maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024, // 50MB default
+  pdfsPath, // ✅ Yahan fixed path hai
+  compressedPdfsPath,
+  maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024,
   allowedMimeTypes: (process.env.ALLOWED_MIME_TYPES || 'image/jpeg,image/png,image/webp').split(','),
   imageQuality: 85,
   maxImagesPerUpload: 10,
